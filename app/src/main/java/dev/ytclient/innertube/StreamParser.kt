@@ -57,6 +57,7 @@ internal object StreamParser {
             videoUrl = if (hasPair) video?.url else null,
             audioUrl = if (hasPair) audio?.url else null,
             videoHeight = if (hasPair) video?.height else bestMuxed?.height,
+            description = details.at("shortDescription").string().orEmpty(),
             userAgent = profile.userAgent,
             clientKey = clientKey,
             availableHeights = if (hasPair) videos.map { it.height }.distinct().sortedDescending() else emptyList(),

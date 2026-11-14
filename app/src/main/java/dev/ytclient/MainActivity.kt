@@ -57,6 +57,7 @@ import dev.ytclient.ui.SubscriptionsViewModel
 import dev.ytclient.ui.AccountScreen
 import dev.ytclient.ui.FeedScreen
 import dev.ytclient.ui.FloatingNavBar
+import dev.ytclient.ui.HistoryScreen
 import dev.ytclient.ui.LoginScreen
 import dev.ytclient.ui.NavItem
 import dev.ytclient.ui.PlayerScreen
@@ -96,6 +97,7 @@ private fun YtApp() {
     var showSearch by rememberSaveable { mutableStateOf(false) }
     var showLogin by rememberSaveable { mutableStateOf(false) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
+    var showHistory by rememberSaveable { mutableStateOf(false) }
     var openChannelId by rememberSaveable { mutableStateOf<String?>(null) }
     val subscriptionsVm: SubscriptionsViewModel = viewModel()
     val channels by subscriptionsVm.channels.collectAsStateWithLifecycle()
@@ -159,6 +161,7 @@ private fun YtApp() {
                     onLogin = { showLogin = true },
                     onSearch = { showSearch = true },
                     onSettings = { showSettings = true },
+                    onOpenHistory = { showHistory = true },
                     onOpenVideo = openVideo,
                 )
             }
@@ -166,7 +169,7 @@ private fun YtApp() {
 
         val navStyle by Graph.settings.navStyle.collectAsStateWithLifecycle()
         // Поверх вкладок мини-плеер виден, пока ролик свёрнут (и не на Shorts, где свой звук и полноэкранный пейджер).
-        val overlayOpen = showSearch || openChannelId != null || showSettings
+        val overlayOpen = showSearch || showHistory || openChannelId != null || showSettings
         val miniClearance = miniPlayerClearance()
         val miniVisible = openVideoId != null && !playerExpanded && meta?.videoId == openVideoId &&
             tab != Tab.Shorts && !showLogin
@@ -198,6 +201,16 @@ private fun YtApp() {
                 SearchScreen(
                     onOpenVideo = openVideo,
                     onBack = { showSearch = false },
+                )
+            }
+        }
+
+        if (showHistory) {
+            Surface(Modifier.fillMaxSize()) {
+                HistoryScreen(
+                    onBack = { showHistory = false },
+                    onOpenVideo = openVideo,
+                    bottomInset = if (miniVisible) miniClearance else 0.dp,
                 )
             }
         }

@@ -37,6 +37,66 @@ internal object FeedParser {
     }
 
     /**
+     * Разбор истории просмотра: те же ролики, что и в [parse], но с датой секции (заголовок
+     * `itemSectionHeaderRenderer` перед каждой порцией роликов) и токеном удаления из истории.
+     * [initialSection] — подпись, под которой продолжается список, если новая страница начинается без заголовка.
+     */
+    fun history(root: JsonElement?, initialSection: String? = null): HistoryPage {
+        val entries = ArrayList<HistoryEntry>()
+        var token: String? = null
+        var section: String? = initialSection
+
+        fun walk(element: JsonElement?) {
+            when (element) {
+                is JsonObject -> for ((key, value) in element) {
+                    when {
+                        key == "itemSectionRenderer" -> {
+                            value.at("header", "itemSectionHeaderRenderer", "title").text()?.let { section = it }
+                            walk(value)
+                        }
+                        key in rendererKeys -> renderer(value)?.let { entries += HistoryEntry(it, section, removeToken(value)) }
+                        key == "lockupViewModel" -> lockup(value)?.let { entries += HistoryEntry(it, section, removeToken(value)) }
+                        key == "continuationItemRenderer" -> findToken(value)?.let { token = it }
+                        else -> walk(value)
+                    }
+                }
+                is JsonArray -> element.forEach { walk(it) }
+                else -> Unit
+            }
+        }
+
+        walk(root)
+        return HistoryPage(entries.distinctBy { it.key }, token)
+    }
+
+    /**
+     * Токен «Удалить из истории просмотра» из меню ролика. Берём пункт, подпись которого говорит об истории;
+     * если подписей нет (новый `lockupViewModel`), годится только единственный токен в элементе. Если кандидатов
+     * несколько и выбрать нельзя, возвращаем null: лучше не показать кнопку, чем удалить не то.
+     */
+    private fun removeToken(item: JsonElement): String? {
+        val found = ArrayList<Pair<String, String?>>()
+
+        fun walk(e: JsonElement?, label: String?) {
+            when (e) {
+                is JsonObject -> {
+                    e["feedbackEndpoint"].at("feedbackToken").string()?.let { found += it to label }
+                    for ((key, value) in e) {
+                        walk(value, if (key == "menuServiceItemRenderer") value.at("text").text() else label)
+                    }
+                }
+                is JsonArray -> e.forEach { walk(it, label) }
+                else -> Unit
+            }
+        }
+
+        walk(item, null)
+        return found.firstOrNull { (_, label) ->
+            label != null && (label.contains("истори", ignoreCase = true) || label.contains("history", ignoreCase = true))
+        }?.first ?: found.singleOrNull()?.first
+    }
+
+    /**
      * Состояние лайка текущего ролика: первое поле `likeStatus` в ответе `next`
      * (LIKE → true, INDIFFERENT/DISLIKE → false, не нашли → null).
      */

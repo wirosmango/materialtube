@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
@@ -82,6 +83,14 @@ fun YtTheme(
         content = content,
     )
 }
+
+/**
+ * Чёрный или белый — тот, что лучше читается на фоне [background] (порог 0,179 — яркость, на которой контраст
+ * с чёрным и с белым одинаков). Цвет выбирается по самому фону, а не по светлой/тёмной теме: в темах Nothing плашки
+ * инверсные (чёрные на светлой теме, белые на тёмной), и «чёрный на светлой» там давал бы нечитаемый текст.
+ */
+fun blackOrWhiteOn(background: Color): Color =
+    if (background.luminance() > 0.179f) Color.Black else Color.White
 
 /** Тёмная палитра с чисто чёрным фоном: акценты остаются из системных цветов (Monet), поверхности — чёрные. */
 private fun ColorScheme.toAmoled(): ColorScheme = copy(

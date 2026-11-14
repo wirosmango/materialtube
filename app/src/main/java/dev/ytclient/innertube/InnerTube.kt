@@ -90,6 +90,35 @@ class InnerTube(
         )
     }
 
+    /**
+     * История просмотра (FEhistory) с датами секций. [section] — подпись последней секции уже загруженного списка:
+     * если продолжение начинается без заголовка, ролики остаются под ней.
+     */
+    suspend fun history(continuation: String? = null, section: String? = null): HistoryPage {
+        val response = post("browse", webProfile()) {
+            if (continuation == null) put("browseId", "FEhistory") else put("continuation", continuation)
+        }
+        lastFeedJson = response.toString()
+        return FeedParser.history(
+            response.at(if (continuation == null) "contents" else "onResponseReceivedActions"),
+            section,
+        )
+    }
+
+    /**
+     * Удаляет одну запись из истории просмотра по токену из [HistoryEntry.removeToken]. Нужен вход в аккаунт.
+     * Формат ответа проверить не удалось: ошибкой считаем и сбой запроса, и явное `isProcessed: false`.
+     */
+    suspend fun removeFromHistory(token: String) {
+        if (authStore?.current?.loggedIn != true) throw InnerTubeException("Нужен вход в аккаунт")
+        val response = post("feedback", webProfile()) {
+            put("feedbackTokens", JsonArray(listOf(JsonPrimitive(token))))
+        }
+        if (response.at("feedbackResponses", 0, "isProcessed").string() == "false") {
+            throw InnerTubeException("YouTube не удалил запись")
+        }
+    }
+
     /** Страница ролика: «похожие», реакция пользователя и токен комментариев (с cookies входа — персональные). */
     suspend fun watchNext(videoId: String): WatchNext {
         val response = post("next", webProfile()) { put("videoId", videoId) }

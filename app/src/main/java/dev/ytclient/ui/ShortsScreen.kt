@@ -122,6 +122,8 @@ private fun ShortsPager(ids: List<String>, active: Boolean, onNearEnd: () -> Uni
     var status by remember { mutableStateOf<LikeStatus?>(null) }
     var commentsToken by remember { mutableStateOf<String?>(null) }
     var showComments by remember { mutableStateOf(false) }
+    var showShare by remember { mutableStateOf(false) }
+    var title by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -144,6 +146,7 @@ private fun ShortsPager(ids: List<String>, active: Boolean, onNearEnd: () -> Uni
         error = null
         status = null
         commentsToken = null
+        title = null
         launch {
             try {
                 val next = Graph.innerTube.watchNext(id)
@@ -159,6 +162,7 @@ private fun ShortsPager(ids: List<String>, active: Boolean, onNearEnd: () -> Uni
         player.clearMediaItems()
         try {
             val info = Graph.innerTube.resolveStream(id, maxHeight = 720)
+            title = info.title
             player.setMediaSource(MediaSources.create(info, Graph.http))
             player.prepare()
             player.playWhenReady = currentActive
@@ -199,6 +203,12 @@ private fun ShortsPager(ids: List<String>, active: Boolean, onNearEnd: () -> Uni
     }
 
     if (showComments) CommentsSheet(token = commentsToken, onDismiss = { showComments = false })
+    if (showShare) {
+        currentId?.let { id ->
+            // Название нужно для темы письма и имени файла при скачивании; пока оно не загрузилось, подставляем общее.
+            ShareSheet(videoId = id, title = title ?: "YouTube Shorts", onDismiss = { showShare = false })
+        }
+    }
 
     VerticalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
         ShortPage(
@@ -210,6 +220,7 @@ private fun ShortsPager(ids: List<String>, active: Boolean, onNearEnd: () -> Uni
             status = status,
             onReact = onReact,
             onComments = { showComments = true },
+            onShare = { showShare = true },
         )
     }
 }
@@ -224,6 +235,7 @@ private fun ShortPage(
     status: LikeStatus?,
     onReact: (LikeStatus) -> Unit,
     onComments: () -> Unit,
+    onShare: () -> Unit,
 ) {
     // Ролик лежит в скруглённой «карточке» над панелью навигации, как и остальные экраны.
     Box(
@@ -292,6 +304,7 @@ private fun ShortPage(
                         Text(
                             "${BoostSpeed.toInt()}× ▶▶",
                             style = MaterialTheme.typography.titleMedium,
+                            color = blackOrWhiteOn(MaterialTheme.colorScheme.secondaryContainer),
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                         )
                     }
@@ -305,6 +318,7 @@ private fun ShortPage(
                     LikeButton(status, onClick = { onReact(LikeStatus.Like) })
                     DislikeButton(status, onClick = { onReact(LikeStatus.Dislike) })
                     CommentsButton(onClick = onComments)
+                    ShareButton(onClick = onShare)
                 }
                 error?.let {
                     Text(

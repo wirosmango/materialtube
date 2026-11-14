@@ -7,6 +7,13 @@ import android.content.pm.ActivityInfo
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.text.style.TextOverflow
@@ -17,24 +24,30 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -63,6 +76,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import dev.ytclient.Graph
+import dev.ytclient.innertube.Channel
 import dev.ytclient.innertube.LikeStatus
 import dev.ytclient.innertube.StreamInfo
 
@@ -79,6 +93,7 @@ fun PlayerScreen(videoId: String, onBack: () -> Unit, onOpenVideo: (String) -> U
     val commentsToken by vm.commentsToken.collectAsStateWithLifecycle()
     var showComments by remember { mutableStateOf(false) }
     var showShare by remember { mutableStateOf(false) }
+    var descriptionOpen by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     if (showShare) {
@@ -97,7 +112,9 @@ fun PlayerScreen(videoId: String, onBack: () -> Unit, onOpenVideo: (String) -> U
     FullscreenEffect(fullscreen)
 
     BackHandler(onBack = onBack)
-    BackHandler(enabled = fullscreen) { fullscreen = false }
+    // «Назад» сначала закрывает описание, затем полноэкранный режим.
+    BackHandler(enabled = descriptionOpen) { descriptionOpen = false }
+    BackHandler(enabled = fullscreen && !descriptionOpen) { fullscreen = false }
 
     Scaffold(
         topBar = {
@@ -139,83 +156,103 @@ fun PlayerScreen(videoId: String, onBack: () -> Unit, onOpenVideo: (String) -> U
                 is PlayerUiState.Ready -> {
                     VideoPlayer(
                         info = current.info,
+                        channel = channel,
+                        descriptionOpen = descriptionOpen,
+                        onOpenDescription = { descriptionOpen = true },
+                        onCloseDescription = { descriptionOpen = false },
                         onQuality = vm::setQuality,
                         onHlsQuality = vm::rememberQuality,
                         fullscreen = fullscreen,
                         onToggleFullscreen = { fullscreen = !fullscreen },
                         modifier = if (fullscreen) Modifier.weight(1f) else Modifier,
                     )
-                    if (!fullscreen) LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-                        item(key = "info") {
-                            Column(
-                                Modifier.padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Text(current.info.title, style = MaterialTheme.typography.titleLarge)
-                                val owner = channel
-                                if (owner != null) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
+                    if (!fullscreen) Box(Modifier.weight(1f).fillMaxWidth()) {
+                        LazyColumn(Modifier.fillMaxSize()) {
+                            item(key = "info") {
+                                Column(
+                                    Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    Text(
+                                        text = current.info.title,
+                                        style = MaterialTheme.typography.titleLarge,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { descriptionOpen = true },
+                                    )
+                                    val owner = channel
+                                    if (owner != null) {
                                         Row(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .clip(RoundedCornerShape(24.dp))
-                                                .clickable { openChannel(owner.id) },
+                                            modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
-                                            ChannelAvatarImage(owner.avatar, 40.dp)
-                                            Text(
-                                                owner.name,
-                                                style = MaterialTheme.typography.titleSmall,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
+                                            Row(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .clip(RoundedCornerShape(24.dp))
+                                                    .clickable { openChannel(owner.id) },
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                ChannelAvatarImage(owner.avatar, 40.dp)
+                                                Text(
+                                                    owner.name,
+                                                    style = MaterialTheme.typography.titleSmall,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                            }
+                                            SubscribeButton(
+                                                subscribed = subscribed,
+                                                onClick = {
+                                                    vm.toggleSubscribe { message ->
+                                                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                                                    }
+                                                },
                                             )
                                         }
-                                        SubscribeButton(
-                                            subscribed = subscribed,
-                                            onClick = {
-                                                vm.toggleSubscribe { message ->
-                                                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-                                                }
-                                            },
-                                        )
+                                    } else {
+                                        current.info.author?.let {
+                                            Text(
+                                                it,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
                                     }
-                                } else {
-                                    current.info.author?.let {
+                                    // Строку «Клиент: …» убрали; остаётся только причина отката, если первые клиенты не сработали.
+                                    if (current.info.notes.isNotBlank()) {
                                         Text(
-                                            it,
-                                            style = MaterialTheme.typography.bodyMedium,
+                                            text = "До этого: " + current.info.notes,
+                                            style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                     }
-                                }
-                                Text(
-                                    buildString {
-                                        append("Клиент: ").append(current.info.clientKey)
-                                        current.info.videoHeight?.let { append(" · ").append(it).append("p") }
-                                        if (current.info.notes.isNotBlank()) append("\nДо этого: ").append(current.info.notes)
-                                    },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                val toast = { message: String ->
-                                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-                                }
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    LikeButton(status, onClick = { vm.react(LikeStatus.Like, toast) })
-                                    DislikeButton(status, onClick = { vm.react(LikeStatus.Dislike, toast) })
-                                    CommentsButton(onClick = { showComments = true })
-                                    ShareButton(onClick = { showShare = true })
+                                    val toast = { message: String ->
+                                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                                    }
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        LikeButton(status, onClick = { vm.react(LikeStatus.Like, toast) })
+                                        DislikeButton(status, onClick = { vm.react(LikeStatus.Dislike, toast) })
+                                        CommentsButton(onClick = { showComments = true })
+                                        ShareButton(onClick = { showShare = true })
+                                    }
                                 }
                             }
+                            items(related, key = { it.id }) { item ->
+                                VideoCard(item = item, onClick = { onOpenVideo(item.id) })
+                            }
                         }
-                        items(related, key = { it.id }) { item ->
-                            VideoCard(item = item, onClick = { onOpenVideo(item.id) })
-                        }
+                        // Описание выезжает снизу и занимает всё место под видео, пока его не закроют крестиком.
+                        DescriptionPanel(
+                            visible = descriptionOpen,
+                            fromRight = false,
+                            info = current.info,
+                            channel = channel,
+                            onClose = { descriptionOpen = false },
+                            modifier = Modifier.align(Alignment.BottomCenter).fillMaxSize(),
+                        )
                     }
                 }
             }
@@ -227,6 +264,10 @@ fun PlayerScreen(videoId: String, onBack: () -> Unit, onOpenVideo: (String) -> U
 @Composable
 private fun VideoPlayer(
     info: StreamInfo,
+    channel: Channel?,
+    descriptionOpen: Boolean,
+    onOpenDescription: () -> Unit,
+    onCloseDescription: () -> Unit,
     onQuality: (height: Int, positionMs: Long) -> Unit,
     onHlsQuality: (Int) -> Unit,
     fullscreen: Boolean,
@@ -269,6 +310,8 @@ private fun VideoPlayer(
             )
             PlayerControls(
                 player = player,
+                title = if (fullscreen) info.title else "",
+                onTitleClick = if (fullscreen) onOpenDescription else null,
                 fullscreen = fullscreen,
                 onToggleFullscreen = onToggleFullscreen,
                 qualityOptions = if (info.isHls) hlsHeights else info.availableHeights,
@@ -284,6 +327,22 @@ private fun VideoPlayer(
                     }
                 },
             )
+            // В полноэкранном режиме панель описания выезжает справа поверх видео.
+            if (fullscreen) {
+                DescriptionPanel(
+                    visible = descriptionOpen,
+                    fromRight = true,
+                    info = info,
+                    channel = channel,
+                    onClose = onCloseDescription,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .fillMaxHeight()
+                        .widthIn(max = 640.dp)
+                        .fillMaxWidth(0.7f)
+                        .padding(12.dp),
+                )
+            }
         }
         playbackError?.let {
             Text(
@@ -303,6 +362,220 @@ private fun videoHeightsOf(tracks: Tracks): List<Int> =
         .filter { it > 0 }
         .distinct()
         .sortedDescending()
+
+/**
+ * Панель описания в стиле MD3 Expressive: скруглённый лист, сегментированные карточки метаданных и абзацев,
+ * закрытие крестиком в правом верхнем углу. В обычном режиме выезжает снизу, в полноэкранном — справа.
+ */
+@Composable
+private fun DescriptionPanel(
+    visible: Boolean,
+    fromRight: Boolean,
+    info: StreamInfo,
+    channel: Channel?,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val enter = if (fromRight) {
+        slideInHorizontally(initialOffsetX = { it }) + fadeIn()
+    } else {
+        slideInVertically(initialOffsetY = { it }) + fadeIn()
+    }
+    val exit = if (fromRight) {
+        slideOutHorizontally(targetOffsetX = { it }) + fadeOut()
+    } else {
+        slideOutVertically(targetOffsetY = { it }) + fadeOut()
+    }
+    val outerShape = if (fromRight) {
+        RoundedCornerShape(28.dp)
+    } else {
+        RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
+    }
+
+    val authorName = channel?.name?.takeIf { it.isNotBlank() } ?: info.author?.takeIf { it.isNotBlank() }
+    val facts = buildList {
+        if (authorName != null) add("Канал" to authorName)
+        info.durationSeconds?.takeIf { it > 0 }?.let { add("Длительность" to formatDuration(it)) }
+        if (info.isLive) add("Формат" to "Прямой эфир")
+        info.videoHeight?.let { add("Качество" to "${it}p") }
+    }
+    val paragraphs = remember(info.description) {
+        info.description
+            .trim()
+            .split(Regex("\\n\\s*\\n+"))
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .ifEmpty { listOf("У этого видео нет описания.") }
+    }
+
+    AnimatedVisibility(
+        visible = visible,
+        enter = enter,
+        exit = exit,
+        modifier = modifier,
+    ) {
+        // Кликабельная поверхность перехватывает тапы, чтобы они не уходили в список или плеер под панелью.
+        Surface(
+            onClick = {},
+            shape = outerShape,
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            tonalElevation = 2.dp,
+            shadowElevation = if (fromRight) 12.dp else 6.dp,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                item(key = "close") {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        ) {
+                            Text(
+                                text = "О видео",
+                                style = MaterialTheme.typography.labelLarge,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                            )
+                        }
+                        FilledTonalIconButton(onClick = onClose) {
+                            Icon(Icons.Rounded.Close, contentDescription = "Закрыть описание")
+                        }
+                    }
+                }
+
+                // Выразительная карточка с названием видео (чуть ниже крестика).
+                item(key = "title") {
+                    Surface(
+                        shape = RoundedCornerShape(28.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(20.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Text(
+                                text = info.title,
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                            if (channel != null || authorName != null) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    if (channel != null) {
+                                        ChannelAvatarImage(channel.avatar, 36.dp)
+                                    }
+                                    Text(
+                                        text = authorName.orEmpty(),
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Сегментированный список фактов о ролике (MD3 Expressive segmented group).
+                if (facts.isNotEmpty()) {
+                    item(key = "facts") {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            facts.forEachIndexed { index, (label, value) ->
+                                Surface(
+                                    shape = segmentShape(index, facts.size),
+                                    color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 20.dp, vertical = 14.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            text = label,
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                        Text(
+                                            text = value,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.padding(start = 16.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                item(key = "desc-header") {
+                    Text(
+                        text = "Описание",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp, top = 4.dp),
+                    )
+                }
+
+                // Сегментированные блоки абзацев описания: внешние углы крупные (24.dp), внутренние — малые (6.dp).
+                item(key = "desc-segments") {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        paragraphs.forEachIndexed { index, block ->
+                            Surface(
+                                shape = segmentShape(index, paragraphs.size),
+                                color = MaterialTheme.colorScheme.surfaceContainerLowest,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    text = block,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Скругление элемента в сегментированной группе MD3 Expressive: внешние края 24.dp, стыки — 6.dp. */
+private fun segmentShape(index: Int, total: Int): RoundedCornerShape {
+    val outer = 24.dp
+    val inner = 6.dp
+    return when {
+        total <= 1 -> RoundedCornerShape(outer)
+        index == 0 -> RoundedCornerShape(topStart = outer, topEnd = outer, bottomStart = inner, bottomEnd = inner)
+        index == total - 1 -> RoundedCornerShape(topStart = inner, topEnd = inner, bottomStart = outer, bottomEnd = outer)
+        else -> RoundedCornerShape(inner)
+    }
+}
+
+private fun formatDuration(seconds: Long): String {
+    val h = seconds / 3600
+    val m = (seconds % 3600) / 60
+    val s = seconds % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
+}
 
 /** Полноэкранный режим: альбомная ориентация и скрытые системные панели; при выходе всё возвращается. */
 @Composable

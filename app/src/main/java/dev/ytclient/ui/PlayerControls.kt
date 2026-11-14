@@ -52,6 +52,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -80,6 +81,10 @@ fun PlayerControls(
     qualityCurrent: Int?,
     onQuality: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    /** Название ролика — часть оверлея управления, поэтому видно и скрывается вместе с кнопками. */
+    title: String = "",
+    /** Нажатие на название открывает панель описания; null — название не кликабельно. */
+    onTitleClick: (() -> Unit)? = null,
 ) {
     var isPlaying by remember(player) { mutableStateOf(player.isPlaying) }
     var buffering by remember(player) { mutableStateOf(player.playbackState == Player.STATE_BUFFERING) }
@@ -178,12 +183,37 @@ fun PlayerControls(
 
         AnimatedVisibility(visible = visible, enter = fadeIn(), exit = fadeOut()) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f))) {
-                ControlButton(
-                    icon = Icons.Rounded.Settings,
-                    description = "Настройки",
-                    onClick = { touch++; settingsOpen = true },
-                    modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
-                )
+                // Название и шестерёнка — один верхний ряд внутри оверлея: появляются и скрываются вместе с кнопками.
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .fillMaxWidth()
+                        .padding(start = 20.dp, end = 8.dp, top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        if (title.isNotBlank()) {
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Color.White,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = if (onTitleClick != null) {
+                                    Modifier.clickable { touch++; onTitleClick() }
+                                } else {
+                                    Modifier
+                                },
+                            )
+                        }
+                    }
+                    ControlButton(
+                        icon = Icons.Rounded.Settings,
+                        description = "Настройки",
+                        onClick = { touch++; settingsOpen = true },
+                    )
+                }
 
                 Row(
                     modifier = Modifier.align(Alignment.Center),
@@ -322,6 +352,8 @@ private fun GestureBadge(text: String, modifier: Modifier = Modifier) {
         Text(
             text,
             style = MaterialTheme.typography.titleMedium,
+            // Чёрный или белый — в зависимости от фона плашки (см. blackOrWhiteOn).
+            color = blackOrWhiteOn(MaterialTheme.colorScheme.secondaryContainer),
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         )
     }

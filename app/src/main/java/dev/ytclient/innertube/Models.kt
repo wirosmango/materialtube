@@ -90,6 +90,8 @@ data class StreamInfo(
     val videoUrl: String?,
     val audioUrl: String?,
     val videoHeight: Int?,
+    /** Полное описание ролика из ответа player. */
+    val description: String = "",
     /** User-Agent клиента, с которым получены ссылки; плеер должен слать такой же. */
     val userAgent: String,
     val clientKey: String,
@@ -103,3 +105,21 @@ data class StreamInfo(
 }
 
 class InnerTubeException(message: String, cause: Throwable? = null) : Exception(message, cause)
+
+/**
+ * Запись истории просмотра: ролик, подпись секции с датой («Сегодня», «Вчера», …; null — если заголовка нет)
+ * и токен, которым ролик удаляется из истории (null — удалить нельзя или токен не нашёлся).
+ */
+data class HistoryEntry(
+    val video: VideoItem,
+    val section: String?,
+    val removeToken: String?,
+) {
+    /** Один и тот же ролик может быть в истории в разные дни, поэтому ключ включает секцию. */
+    val key: String get() = "${video.id}|${section.orEmpty()}"
+}
+
+data class HistoryPage(
+    val entries: List<HistoryEntry>,
+    val continuation: String?,
+)
