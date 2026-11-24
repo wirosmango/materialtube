@@ -42,6 +42,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
 import dev.ytclient.player.PlaybackMeta
 import dev.ytclient.ui.MiniPlayer
 import dev.ytclient.ui.miniPlayerClearance
@@ -63,6 +65,7 @@ import dev.ytclient.ui.NavItem
 import dev.ytclient.ui.PlayerScreen
 import dev.ytclient.ui.SearchScreen
 import dev.ytclient.ui.ShortsScreen
+import dev.ytclient.ui.ShortsViewer
 import dev.ytclient.ui.YtTheme
 
 class MainActivity : ComponentActivity() {
@@ -99,11 +102,18 @@ private fun YtApp() {
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showHistory by rememberSaveable { mutableStateOf(false) }
     var openChannelId by rememberSaveable { mutableStateOf<String?>(null) }
+    // Shorts, открытые с полки в ленте: идентификаторы полки и номер карточки, с которой начать (null — не открыты).
+    var shortsViewerIds by rememberSaveable { mutableStateOf<ArrayList<String>?>(null) }
+    var shortsViewerStart by rememberSaveable { mutableStateOf(0) }
     val subscriptionsVm: SubscriptionsViewModel = viewModel()
     val channels by subscriptionsVm.channels.collectAsStateWithLifecycle()
     val openVideo: (String) -> Unit = {
         openVideoId = it
         playerExpanded = true
+    }
+    val openShorts: (List<String>, Int) -> Unit = { ids, index ->
+        shortsViewerIds = ArrayList(ids)
+        shortsViewerStart = index
     }
 
     val playback = Graph.playback
@@ -128,10 +138,24 @@ private fun YtApp() {
     }
     // Shorts играют со звуком: чтобы они не накладывались на мини-плеер, ставим его на паузу.
     LaunchedEffect(tab) { if (tab == Tab.Shorts) playback.pause() }
+    LaunchedEffect(shortsViewerIds != null) { if (shortsViewerIds != null) playback.pause() }
+
+    val hazeState = rememberHazeState()
+    val frostedGlass by Graph.settings.frostedGlass.collectAsStateWithLifecycle()
 
     CompositionLocalProvider(LocalOpenChannel provides { openChannelId = it }) {
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHigh)) {
-        Crossfade(targetState = tab, animationSpec = tween(220), label = "tab") { current ->
+    Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .then(if (frostedGlass) Modifier.hazeSource(state = hazeState) else Modifier),
+        ) {
+            Crossfade(
+                targetState = tab,
+                animationSpec = tween(220),
+                label = "tab",
+            ) { current ->
             when (current) {
                 Tab.Home -> FeedScreen(
                     title = "MaterialTube",
@@ -139,6 +163,7 @@ private fun YtApp() {
                     requiresLogin = false,
                     loginHint = "Войдите в аккаунт, чтобы увидеть рекомендации",
                     onOpenVideo = openVideo,
+                    onOpenShorts = openShorts,
                     onLogin = { showLogin = true },
                     onSearch = { showSearch = true },
                 )
@@ -165,14 +190,17 @@ private fun YtApp() {
                     onOpenVideo = openVideo,
                 )
             }
+            }
         }
 
         val navStyle by Graph.settings.navStyle.collectAsStateWithLifecycle()
+        val navShape by Graph.settings.navShape.collectAsStateWithLifecycle()
+        val navShowLabel by Graph.settings.navShowLabel.collectAsStateWithLifecycle()
         // Поверх вкладок мини-плеер виден, пока ролик свёрнут (и не на Shorts, где свой звук и полноэкранный пейджер).
         val overlayOpen = showSearch || showHistory || openChannelId != null || showSettings
         val miniClearance = miniPlayerClearance()
         val miniVisible = openVideoId != null && !playerExpanded && meta?.videoId == openVideoId &&
-            tab != Tab.Shorts && !showLogin
+            tab != Tab.Shorts && !showLogin && shortsViewerIds == null
         SideEffect {
             val base = if (navStyle == NavStyle.Standard) 96.dp else 112.dp
             applyBarClearance(if (miniVisible && !overlayOpen) base + miniClearance else base)
@@ -182,6 +210,7 @@ private fun YtApp() {
                 items = navItems,
                 selectedIndex = tab.ordinal,
                 onSelect = { tab = Tab.entries[it] },
+                hazeState = if (frostedGlass) hazeState else null,
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         } else {
@@ -189,6 +218,9 @@ private fun YtApp() {
                 items = navItems,
                 selectedIndex = tab.ordinal,
                 onSelect = { tab = Tab.entries[it] },
+                shape = navShape,
+                showLabel = navShowLabel,
+                hazeState = if (frostedGlass) hazeState else null,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
@@ -211,6 +243,16 @@ private fun YtApp() {
                     onBack = { showHistory = false },
                     onOpenVideo = openVideo,
                     bottomInset = if (miniVisible) miniClearance else 0.dp,
+                )
+            }
+        }
+
+        shortsViewerIds?.let { ids ->
+            Surface(Modifier.fillMaxSize()) {
+                ShortsViewer(
+                    initialIds = ids,
+                    startIndex = shortsViewerStart,
+                    onClose = { shortsViewerIds = null },
                 )
             }
         }
@@ -243,7 +285,14 @@ private fun YtApp() {
 
         if (showSettings) {
             Surface(Modifier.fillMaxSize()) {
-                SettingsScreen(onBack = { showSettings = false })
+                SettingsScreen(
+                    onBack = { showSettings = false },
+                    bottomInset = if (miniVisible) miniClearance else 0.dp,
+                    onOpenVideo = {
+                        showSettings = false
+                        openVideo(it)
+                    },
+                )
             }
         }
 

@@ -14,7 +14,15 @@
 4. История просмотров (пока что в ней невозможно разобраться, так как это обычный список)
 5. Shorts 
 6. Выбор темы, шрифта и настройка панели навигации
+7. Жест обновления рекомендаций
 
 ## Сборка 
-> Напишу позже
+Вам понадобится скрипт gradlew
 
+```
+.\gradlew.bat assembleDebug # для Debug сборки, Windows
+
+./gradlew assembleDebug # для Debug сборки, macOS/Linux
+```
+
+либо через Android Studio (Build -> Generate APK/AAB)

@@ -21,9 +21,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import dev.ytclient.Graph
+import dev.ytclient.innertube.VideoItem
 
 @Composable
 fun FeedScreen(
@@ -45,17 +48,22 @@ fun FeedScreen(
     onLogin: () -> Unit,
     onSearch: () -> Unit,
     header: (@Composable () -> Unit)? = null,
+    /** Открыть Shorts с карточки номер `index` из списка идентификаторов полки. */
+    onOpenShorts: (ids: List<String>, index: Int) -> Unit = { _, _ -> },
 ) {
     val vm: FeedViewModel = viewModel(key = "feed-$browseId") { FeedViewModel(browseId, requiresLogin) }
     val state by vm.state.collectAsStateWithLifecycle()
     val auth by Graph.auth.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val listState = rememberLazyListState()
+    val showShorts by Graph.settings.shortsInFeed.collectAsStateWithLifecycle()
+    // Shorts из ответа прячутся здесь, а не при разборе: переключатель в настройках действует сразу, без перезагрузки.
+    val rows = remember(state.items, showShorts) { feedRows(state.items, showShorts) }
 
     LaunchedEffect(listState) {
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
             .collect { index ->
-                if (index != null && index >= vm.state.value.items.size - 3) vm.loadMore()
+                if (index != null && index >= listState.layoutInfo.totalItemsCount - 3) vm.loadMore()
             }
     }
 
@@ -64,11 +72,15 @@ fun FeedScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = { AppTopBar(title = title, onSearch = onSearch) },
     ) { padding ->
-        Box(Modifier.padding(padding).fillMaxSize()) {
+        PullToRefreshBox(
+            isRefreshing = state.loading && rows.isNotEmpty(),
+            onRefresh = { vm.load(keepItems = true) },
+            modifier = Modifier.padding(padding).fillMaxSize(),
+        ) {
             when {
-                state.loading -> LoadingIndicator(Modifier.align(Alignment.Center))
+                state.loading && rows.isEmpty() -> LoadingIndicator(Modifier.align(Alignment.Center))
 
-                state.items.isEmpty() -> Column(
+                rows.isEmpty() -> Column(
                     modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -89,7 +101,7 @@ fun FeedScreen(
                         textAlign = TextAlign.Center,
                     )
                     if (!auth.loggedIn) Button(onClick = onLogin) { Text("Войти через Google") }
-                    OutlinedButton(onClick = vm::load) { Text("Обновить") }
+                    OutlinedButton(onClick = { vm.load() }) { Text("Обновить") }
                     if (auth.loggedIn && state.error == null) {
                         OutlinedButton(onClick = { copyLastResponse(context) }) {
                             Text("Скопировать ответ (отладка)")
@@ -104,8 +116,14 @@ fun FeedScreen(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     header?.let { item(key = "header") { it() } }
-                    items(state.items, key = { it.id }) { item ->
-                        VideoCard(item = item, onClick = { onOpenVideo(item.id) })
+                    items(rows, key = { it.key }) { row ->
+                        when (row) {
+                            is FeedRow.Video -> VideoCard(item = row.item, onClick = { onOpenVideo(row.item.id) })
+                            is FeedRow.Shelf -> ShortsShelf(
+                                items = row.items,
+                                onOpen = { index -> onOpenShorts(row.items.map { it.id }, index) },
+                            )
+                        }
                     }
                     if (state.loadingMore) {
                         item {
@@ -118,6 +136,38 @@ fun FeedScreen(
             }
         }
     }
+}
+
+private sealed interface FeedRow {
+    val key: String
+
+    data class Video(val item: VideoItem) : FeedRow {
+        override val key: String get() = item.id
+    }
+
+    /** Подряд идущие Shorts одной полки. */
+    data class Shelf(val items: List<VideoItem>) : FeedRow {
+        override val key: String get() = "shorts-" + items.first().id
+    }
+}
+
+/** Строки ленты: обычные видео и полки Shorts (подряд идущие Shorts склеиваются в одну полку; при [shorts] = false их нет). */
+private fun feedRows(items: List<VideoItem>, shorts: Boolean): List<FeedRow> {
+    val rows = ArrayList<FeedRow>(items.size)
+    var shelf: ArrayList<VideoItem>? = null
+    for (item in items) {
+        if (!item.isShort) {
+            shelf = null
+            rows += FeedRow.Video(item)
+        } else if (shorts) {
+            val current = shelf ?: ArrayList<VideoItem>().also {
+                shelf = it
+                rows += FeedRow.Shelf(it)
+            }
+            current += item
+        }
+    }
+    return rows
 }
 
 /** Кладёт сырой ответ ленты в буфер обмена (обрезан: в буфер нельзя класть больше ~1 МБ). */

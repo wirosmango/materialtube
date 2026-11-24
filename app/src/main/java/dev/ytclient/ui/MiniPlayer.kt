@@ -138,7 +138,7 @@ fun MiniPlayer(
             .widthIn(max = MiniPlayerMaxWidth)
             .fillMaxWidth()
             .aspectRatio(16f / 9f)
-            .offset { IntOffset(dragX.roundToInt(), 0) }
+            .offset { IntOffset(dragX.roundToInt(), dragY.roundToInt()) }
             .graphicsLayer { alpha = 1f - (abs(dragX) / (dismissDistance * 4f)).coerceIn(0f, 1f) }
             .draggable(
                 orientation = Orientation.Horizontal,
@@ -162,10 +162,20 @@ fun MiniPlayer(
             )
             .draggable(
                 orientation = Orientation.Vertical,
-                state = rememberDraggableState { dragY += it },
+                state = rememberDraggableState { delta ->
+                    dragY = (dragY + delta).coerceIn(-expandDistance * 3f, 0f)
+                },
                 onDragStopped = { velocity ->
-                    if (dragY < -expandDistance || velocity < -800f) onExpand()
-                    dragY = 0f
+                    if (dragY < -expandDistance || velocity < -800f) {
+                        onExpand()
+                        dragY = 0f
+                    } else {
+                        scope.launch {
+                            animate(dragY, 0f, animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f)) { v, _ ->
+                                dragY = v
+                            }
+                        }
+                    }
                 },
             ),
     ) {

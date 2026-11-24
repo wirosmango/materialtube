@@ -80,13 +80,14 @@ class InnerTube(
      * Лента `browse`: главная (FEwhat_to_watch), подписки (FEsubscriptions), история (FEhistory).
      * Без входа главная, скорее всего, пустая, а подписки и история недоступны.
      */
-    suspend fun feed(browseId: String, continuation: String? = null): SearchPage {
+    suspend fun feed(browseId: String, continuation: String? = null, includeShorts: Boolean = false): SearchPage {
         val response = post("browse", webProfile()) {
             if (continuation == null) put("browseId", browseId) else put("continuation", continuation)
         }
         lastFeedJson = response.toString()
         return FeedParser.parse(
             response.at(if (continuation == null) "contents" else "onResponseReceivedActions"),
+            includeShorts,
         )
     }
 

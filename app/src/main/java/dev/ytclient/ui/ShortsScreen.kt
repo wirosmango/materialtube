@@ -1,6 +1,9 @@
 package dev.ytclient.ui
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material3.IconButton
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.material3.Surface
@@ -20,6 +23,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.VerticalPager
@@ -41,7 +45,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -102,10 +105,63 @@ fun ShortsScreen(active: Boolean, vm: ShortsViewModel = viewModel()) {
     }
 }
 
+/**
+ * Shorts, открытые с полки в ленте: на весь экран, с карточки номер [startIndex] из [initialIds].
+ * Когда ролики кончаются, подгружаются ещё тем же запросом, что и на вкладке Shorts. «Назад» закрывает просмотр.
+ */
 @Composable
-private fun ShortsPager(ids: List<String>, active: Boolean, onNearEnd: () -> Unit) {
+fun ShortsViewer(initialIds: List<String>, startIndex: Int, onClose: () -> Unit) {
+    BackHandler(onBack = onClose)
+    var ids by remember(initialIds) { mutableStateOf(initialIds) }
+    var loadingMore by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        ShortsPager(
+            ids = ids,
+            active = true,
+            startIndex = startIndex,
+            hasBottomBar = false,
+            onNearEnd = {
+                if (!loadingMore) {
+                    loadingMore = true
+                    scope.launch {
+                        try {
+                            ids = (ids + Graph.innerTube.shorts()).distinct()
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            // Подгрузка необязательна: просто остаёмся на тех, что есть.
+                        } finally {
+                            loadingMore = false
+                        }
+                    }
+                }
+            },
+        )
+        IconButton(
+            onClick = onClose,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding()
+                .padding(8.dp)
+                .background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(50)),
+        ) {
+            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Назад", tint = Color.White)
+        }
+    }
+}
+
+@Composable
+private fun ShortsPager(
+    ids: List<String>,
+    active: Boolean,
+    onNearEnd: () -> Unit,
+    startIndex: Int = 0,
+    hasBottomBar: Boolean = true,
+) {
     val context = LocalContext.current
-    val pagerState = rememberPagerState { ids.size }
+    val pagerState = rememberPagerState(initialPage = startIndex.coerceIn(0, (ids.size - 1).coerceAtLeast(0))) { ids.size }
 
     // Один плеер на всю ленту: при смене страницы в него загружается следующий ролик.
     val player = remember {
@@ -218,6 +274,7 @@ private fun ShortsPager(ids: List<String>, active: Boolean, onNearEnd: () -> Uni
             resolving = resolving,
             error = error,
             status = status,
+            hasBottomBar = hasBottomBar,
             onReact = onReact,
             onComments = { showComments = true },
             onShare = { showShare = true },
@@ -233,23 +290,19 @@ private fun ShortPage(
     resolving: Boolean,
     error: String?,
     status: LikeStatus?,
+    hasBottomBar: Boolean,
     onReact: (LikeStatus) -> Unit,
     onComments: () -> Unit,
     onShare: () -> Unit,
 ) {
-    // Ролик лежит в скруглённой «карточке» над панелью навигации, как и остальные экраны.
+    // Ролик идёт на всю ширину экрана и обрезается только сверху (под статус-бар) и снизу (до нижней панели).
     Box(
         Modifier
             .fillMaxSize()
             .statusBarsPadding()
-            .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = FloatingBarClearance),
+            .then(if (hasBottomBar) Modifier.padding(bottom = FloatingBarClearance) else Modifier.navigationBarsPadding())
+            .background(Color.Black),
     ) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .clip(RoundedCornerShape(32.dp))
-                .background(Color.Black),
-        ) {
             if (isCurrent) {
                 AndroidView(
                     factory = { ctx -> PlayerView(ctx).apply { useController = false; this.player = player } },
@@ -338,5 +391,4 @@ private fun ShortPage(
                 )
             }
         }
-    }
 }

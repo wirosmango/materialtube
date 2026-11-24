@@ -33,6 +33,9 @@ class FeedViewModel(
 
     private var job: Job? = null
 
+    /** Полки Shorts разбираем только на главной; показывать их или нет, решает экран по настройке. */
+    private val includeShorts = browseId == "FEwhat_to_watch"
+
     init {
         // Лента перезагружается при входе и выходе из аккаунта (первый раз — сразу при создании).
         viewModelScope.launch {
@@ -40,21 +43,22 @@ class FeedViewModel(
         }
     }
 
-    fun load() {
+    /** [keepItems] = true — обновление «потянуть вниз»: старый список остаётся на экране, пока грузится новый. */
+    fun load(keepItems: Boolean = false) {
         job?.cancel()
         if (requiresLogin && !Graph.auth.current.loggedIn) {
             _state.value = FeedUiState(loaded = true)
             return
         }
         job = viewModelScope.launch {
-            _state.value = FeedUiState(loading = true)
+            _state.update { if (keepItems) it.copy(loading = true, loadingMore = false, error = null) else FeedUiState(loading = true) }
             try {
-                val page = Graph.innerTube.feed(browseId)
+                val page = Graph.innerTube.feed(browseId, includeShorts = includeShorts)
                 _state.value = FeedUiState(items = page.items, continuation = page.continuation, loaded = true)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                _state.value = FeedUiState(loaded = true, error = e.message ?: "Ошибка запроса")
+                _state.update { it.copy(loading = false, loaded = true, error = e.message ?: "Ошибка запроса") }
             }
         }
     }
@@ -67,7 +71,7 @@ class FeedViewModel(
         job = viewModelScope.launch {
             _state.update { it.copy(loadingMore = true) }
             try {
-                val page = Graph.innerTube.feed(browseId, token)
+                val page = Graph.innerTube.feed(browseId, token, includeShorts)
                 _state.update {
                     it.copy(
                         loadingMore = false,

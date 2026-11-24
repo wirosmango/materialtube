@@ -7,13 +7,15 @@ import kotlinx.serialization.json.JsonObject
 /**
  * Универсальный разбор лент (поиск, главная, «похожие»): обходит JSON целиком и собирает все видео,
  * не завися от точной вложенности. Понимает старые renderer'ы и новый `lockupViewModel`.
- * Shorts и плейлисты пропускаются. Токен продолжения берётся из последнего `continuationItemRenderer`.
+ * Плейлисты пропускаются, Shorts — тоже, если не передан `includeShorts` (тогда они попадают в список
+ * с `isShort = true`, в том порядке, в каком лежат в ответе). Токен продолжения берётся из последнего
+ * `continuationItemRenderer`.
  */
 internal object FeedParser {
 
     private val rendererKeys = setOf("videoRenderer", "compactVideoRenderer", "gridVideoRenderer")
 
-    fun parse(root: JsonElement?): SearchPage {
+    fun parse(root: JsonElement?, includeShorts: Boolean = false): SearchPage {
         val videos = ArrayList<VideoItem>()
         var token: String? = null
 
@@ -23,6 +25,8 @@ internal object FeedParser {
                     when {
                         key in rendererKeys -> renderer(value)?.let { videos += it }
                         key == "lockupViewModel" -> lockup(value)?.let { videos += it }
+                        key == "shortsLockupViewModel" -> if (includeShorts) shortLockup(value)?.let { videos += it }
+                        key == "reelItemRenderer" -> if (includeShorts) reelItem(value)?.let { videos += it }
                         key == "continuationItemRenderer" -> findToken(value)?.let { token = it }
                         else -> walk(value)
                     }
@@ -401,6 +405,53 @@ internal object FeedParser {
                 "image", "decoratedAvatarViewModel", "avatar", "avatarViewModel", "image", "sources", 0, "url",
             ).string().https(),
         )
+    }
+
+    /**
+     * Short в новой разметке (`shortsLockupViewModel`): идентификатор — из `reelWatchEndpoint` внутри карточки
+     * или из `entityId` вида `shorts-shelf-item-<id>`, название и просмотры — из `overlayMetadata`.
+     * Формат проверить не удалось, поэтому обязателен только идентификатор.
+     */
+    private fun shortLockup(l: JsonElement): VideoItem? {
+        val id = findReelId(l)
+            ?: l.at("entityId").string()?.substringAfterLast('-')?.takeIf { it.length == 11 }
+            ?: return null
+        val title = l.at("overlayMetadata", "primaryText", "content").string()
+            ?: l.at("accessibilityText").string()?.substringBeforeLast(", ")
+            ?: "Short"
+        return VideoItem(
+            id = id,
+            title = title,
+            channel = null,
+            duration = null,
+            views = l.at("overlayMetadata", "secondaryText", "content").string(),
+            published = null,
+            isShort = true,
+            thumbnailUrl = l.at("thumbnail", "sources").array().lastOrNull().at("url").string().https(),
+        )
+    }
+
+    /** Short в старой разметке (`reelItemRenderer`). */
+    private fun reelItem(r: JsonElement): VideoItem? {
+        val id = r.at("videoId").string() ?: return null
+        return VideoItem(
+            id = id,
+            title = r.at("headline").text() ?: "Short",
+            channel = null,
+            duration = null,
+            views = r.at("viewCountText").text(),
+            published = null,
+            isShort = true,
+            thumbnailUrl = r.at("thumbnail", "thumbnails").array().lastOrNull().at("url").string().https(),
+        )
+    }
+
+    /** Первый `reelWatchEndpoint.videoId` внутри элемента. */
+    private fun findReelId(e: JsonElement?): String? = when (e) {
+        is JsonObject -> e["reelWatchEndpoint"].at("videoId").string()
+            ?: e.values.firstNotNullOfOrNull { findReelId(it) }
+        is JsonArray -> e.firstNotNullOfOrNull { findReelId(it) }
+        else -> null
     }
 
     /** Ссылки на аватарки иногда приходят в виде `//yt3.ggpht.com/...`. */

@@ -8,6 +8,9 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -15,6 +18,9 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.draw.clip
@@ -27,6 +33,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -54,15 +61,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -111,12 +125,40 @@ fun PlayerScreen(videoId: String, onBack: () -> Unit, onOpenVideo: (String) -> U
     var fullscreen by remember { mutableStateOf(false) }
     FullscreenEffect(fullscreen)
 
+    val scope = rememberCoroutineScope()
+    val dismissDistance = with(LocalDensity.current) { 96.dp.toPx() }
+    var dragY by remember { mutableFloatStateOf(0f) }
+    val swipeDownModifier = Modifier.draggable(
+        orientation = Orientation.Vertical,
+        enabled = !fullscreen && !descriptionOpen,
+        state = rememberDraggableState { delta ->
+            dragY = (dragY + delta).coerceAtLeast(0f)
+        },
+        onDragStopped = { velocity ->
+            scope.launch {
+                if (dragY > dismissDistance || velocity > 800f) {
+                    val target = dismissDistance * 3.5f
+                    animate(dragY, target, animationSpec = tween(150)) { v, _ -> dragY = v }
+                    onBack()
+                    dragY = 0f
+                } else {
+                    animate(dragY, 0f, animationSpec = spring(dampingRatio = 0.7f, stiffness = 400f)) { v, _ ->
+                        dragY = v
+                    }
+                }
+            }
+        },
+    )
+
     BackHandler(onBack = onBack)
     // «Назад» сначала закрывает описание, затем полноэкранный режим.
     BackHandler(enabled = descriptionOpen) { descriptionOpen = false }
     BackHandler(enabled = fullscreen && !descriptionOpen) { fullscreen = false }
 
     Scaffold(
+        modifier = Modifier
+            .offset { IntOffset(0, dragY.roundToInt()) }
+            .graphicsLayer { alpha = 1f - (dragY / (dismissDistance * 4f)).coerceIn(0f, 0.45f) },
         topBar = {
             if (!fullscreen) TopAppBar(
                 title = {},
@@ -125,6 +167,7 @@ fun PlayerScreen(videoId: String, onBack: () -> Unit, onOpenVideo: (String) -> U
                         Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Свернуть")
                     }
                 },
+                modifier = swipeDownModifier,
             )
         },
     ) { padding ->
@@ -135,12 +178,12 @@ fun PlayerScreen(videoId: String, onBack: () -> Unit, onOpenVideo: (String) -> U
         ) {
             when (val current = state) {
                 PlayerUiState.Loading -> Box(
-                    Modifier.fillMaxWidth().aspectRatio(16f / 9f),
+                    Modifier.fillMaxWidth().aspectRatio(16f / 9f).then(swipeDownModifier),
                     contentAlignment = Alignment.Center,
                 ) { LoadingIndicator() }
 
                 is PlayerUiState.Error -> Column(
-                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    modifier = Modifier.fillMaxWidth().then(swipeDownModifier).padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
@@ -164,7 +207,7 @@ fun PlayerScreen(videoId: String, onBack: () -> Unit, onOpenVideo: (String) -> U
                         onHlsQuality = vm::rememberQuality,
                         fullscreen = fullscreen,
                         onToggleFullscreen = { fullscreen = !fullscreen },
-                        modifier = if (fullscreen) Modifier.weight(1f) else Modifier,
+                        modifier = if (fullscreen) Modifier.weight(1f) else swipeDownModifier,
                     )
                     if (!fullscreen) Box(Modifier.weight(1f).fillMaxWidth()) {
                         LazyColumn(Modifier.fillMaxSize()) {

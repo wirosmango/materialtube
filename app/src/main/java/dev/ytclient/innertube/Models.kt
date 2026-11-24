@@ -9,8 +9,15 @@ data class VideoItem(
     val published: String?,
     val channelAvatar: String? = null,
     val channelId: String? = null,
+    /** Это Short (вертикальное видео из полки Shorts); у таких нет канала, длительности и даты. */
+    val isShort: Boolean = false,
+    /** Вертикальное превью Short из ответа YouTube; null — берём кадр по идентификатору. */
+    val thumbnailUrl: String? = null,
 ) {
     val thumbnail: String get() = "https://i.ytimg.com/vi/$id/mqdefault.jpg"
+
+    /** Превью для карточки Short: из ответа или hqdefault (4:3 с чёрными полями, при обрезке остаётся сам кадр). */
+    val shortThumbnail: String get() = thumbnailUrl ?: "https://i.ytimg.com/vi/$id/hqdefault.jpg"
 }
 
 data class SearchPage(
